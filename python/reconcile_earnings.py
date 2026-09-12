@@ -21,8 +21,12 @@ import sys
 
 
 def load_payouts(path):
-    with open(path) as fh:
-        return json.load(fh)
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError) as err:
+        print(f"error: could not read or parse {path}: {err}", file=sys.stderr)
+        return None
 
 
 def summarise(payouts):
@@ -38,9 +42,14 @@ def summarise(payouts):
     totals = {}
 
     for row in payouts:
+        if row.get("status") != "paid":
+            continue
+
         instructor = row["instructor_id"]
         amount = row["amount_minor"]
-        fee = row["fee_minor"]
+        fee = row.get("fee_minor")
+        if fee is None:
+            fee = 0
 
         net = amount - fee
 
@@ -57,6 +66,9 @@ def main(argv):
         return 1
 
     payouts = load_payouts(argv[1])
+    if payouts is None:
+        return 2
+
     totals = summarise(payouts)
 
     print("instructor_id,total_net_minor")

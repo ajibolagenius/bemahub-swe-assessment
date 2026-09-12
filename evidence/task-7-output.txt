@@ -1,0 +1,14 @@
+$ python3 reconcile_earnings.py payouts.json
+instructor_id,total_net_minor
+7,84750
+9,79700
+11,30000
+
+$ echo $?
+0
+
+$ python3 reconcile_earnings.py missing.json
+error: could not read or parse missing.json: [Errno 2] No such file or directory: 'missing.json'
+
+$ echo $?
+2
