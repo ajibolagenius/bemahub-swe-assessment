@@ -8,7 +8,7 @@
  * The RESPONSE interceptor is deliberately incomplete - see TASK-2.
  */
 import axios from "axios";
-import { getStoredToken } from "@/lib/auth/authStore";
+import { getStoredToken, useAuthStore } from "@/lib/auth/authStore";
 
 const baseURL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/wp-json/bemalearn/v1";
@@ -28,8 +28,25 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// TODO (Task 2): handle 401 here.
-// Think about what should happen to stored auth state, and how a caller can
-// tell a TRANSPORT failure (no response at all) from a BUSINESS refusal.
+// Response interceptor: handle 401 and network/transport failures
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Transport failure: API is unreachable, error.response is undefined
+    if (!error.response) {
+      error.message = "Network error: Unable to reach server. Please check your connection.";
+      return Promise.reject(error);
+    }
+
+    // Business refusal or auth failure: if 401, clear stored auth
+    if (error.response.status === 401) {
+      if (typeof window !== "undefined") {
+        useAuthStore.getState().signOut();
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export default api;
