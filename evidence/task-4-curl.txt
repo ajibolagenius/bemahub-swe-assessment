@@ -1,0 +1,201 @@
+================================================================================
+TASK 4 — EVIDENCE: 4 PHP DEFECTS (BEFORE AND AFTER)
+================================================================================
+
+--------------------------------------------------------------------------------
+DEFECT 1 (Permission): /me/earnings allowed non-instructors (learners)
+--------------------------------------------------------------------------------
+Description:
+The endpoint /me/earnings was configured with 'permission_callback' => [$this, 'check_authenticated'],
+which allowed any signed-in user including learners to access instructor earnings data.
+Per API-CONTRACT.md, a learner's token must receive 403 Forbidden.
+
+BEFORE FIX:
+$ curl -i http://localhost:8080/wp-json/bemalearn/v1/me/earnings \
+  -H "Authorization: Bearer <redacted>"
+
+HTTP/1.1 200 OK
+Date: Sat, 12 Sep 2026 07:54:57 GMT
+Server: Apache/2.4.67 (Debian)
+X-Powered-By: PHP/8.3.31
+X-Robots-Tag: noindex
+Link: <http://localhost:8080/wp-json/>; rel="https://api.w.org/"
+X-Content-Type-Options: nosniff
+Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages, Link
+Access-Control-Allow-Headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+Allow: GET
+Vary: Origin
+Content-Length: 109
+Content-Type: application/json; charset=UTF-8
+
+{"availableMinor":0,"pendingMinor":0,"currency":"NGN","minimumWithdrawalMinor":50000,"lastWithdrawalAt":null}
+
+
+AFTER FIX:
+$ curl -i http://localhost:8080/wp-json/bemalearn/v1/me/earnings \
+  -H "Authorization: Bearer <redacted>"
+
+HTTP/1.1 403 Forbidden
+Date: Sat, 12 Sep 2026 07:56:54 GMT
+Server: Apache/2.4.67 (Debian)
+X-Powered-By: PHP/8.3.31
+X-Robots-Tag: noindex
+Link: <http://localhost:8080/wp-json/>; rel="https://api.w.org/"
+X-Content-Type-Options: nosniff
+Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages, Link
+Access-Control-Allow-Headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+Vary: Origin
+Content-Length: 72
+Content-Type: application/json; charset=UTF-8
+
+{"code":"forbidden","message":"Instructors only.","data":{"status":403}}
+
+
+--------------------------------------------------------------------------------
+DEFECT 2 (Schema mismatch): get_course read lessons_total instead of lesson_count
+--------------------------------------------------------------------------------
+Description:
+In get_course(), the code mapped $shaped['lessonCount'] from $row->lessons_total,
+a column that did not exist in the wp_bl_courses table (the column is lesson_count).
+This quietly fell back to 0 instead of returning the true lesson count.
+
+BEFORE FIX:
+$ curl -i http://localhost:8080/wp-json/bemalearn/v1/courses/1
+
+HTTP/1.1 200 OK
+Date: Sat, 12 Sep 2026 07:55:24 GMT
+Server: Apache/2.4.67 (Debian)
+X-Powered-By: PHP/8.3.31
+X-Robots-Tag: noindex
+Link: <http://localhost:8080/wp-json/>; rel="https://api.w.org/"
+X-Content-Type-Options: nosniff
+Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages, Link
+Access-Control-Allow-Headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+Allow: GET
+Vary: Origin
+Content-Length: 324
+Content-Type: application/json; charset=UTF-8
+
+{"id":1,"title":"Introduction to Bread Baking","instructorName":"Ada Okafor","priceMinor":4500,"currency":"NGN","enrolmentCount":128,"averageRating":4.6,"publishedAt":"2026-03-14T08:00:00+00:00","isPublished":true,"description":"Introduction to Bread Baking - a short course for the assessment environment.","lessonCount":0}
+
+
+AFTER FIX:
+$ curl -i http://localhost:8080/wp-json/bemalearn/v1/courses/1
+
+HTTP/1.1 200 OK
+Date: Sat, 12 Sep 2026 07:58:23 GMT
+Server: Apache/2.4.67 (Debian)
+X-Powered-By: PHP/8.3.31
+X-Robots-Tag: noindex
+Link: <http://localhost:8080/wp-json/>; rel="https://api.w.org/"
+X-Content-Type-Options: nosniff
+Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages, Link
+Access-Control-Allow-Headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+Allow: GET
+Vary: Origin
+Content-Length: 325
+Content-Type: application/json; charset=UTF-8
+
+{"id":1,"title":"Introduction to Bread Baking","instructorName":"Ada Okafor","priceMinor":4500,"currency":"NGN","enrolmentCount":128,"averageRating":4.6,"publishedAt":"2026-03-14T08:00:00+00:00","isPublished":true,"description":"Introduction to Bread Baking - a short course for the assessment environment.","lessonCount":12}
+
+
+--------------------------------------------------------------------------------
+DEFECT 3 (API contract): get_courses returned unpublished courses
+--------------------------------------------------------------------------------
+Description:
+The SQL query in get_courses() selected all courses without filtering by is_published.
+Per API-CONTRACT.md, unpublished courses must never appear in GET /courses.
+Course 5 ('Advanced Laminated Dough', isPublished: false) was improperly leaked.
+
+BEFORE FIX:
+$ curl -i http://localhost:8080/wp-json/bemalearn/v1/courses
+
+HTTP/1.1 200 OK
+Date: Sat, 12 Sep 2026 07:54:38 GMT
+Server: Apache/2.4.67 (Debian)
+X-Powered-By: PHP/8.3.31
+X-Robots-Tag: noindex
+Link: <http://localhost:8080/wp-json/>; rel="https://api.w.org/"
+X-Content-Type-Options: nosniff
+Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages, Link
+Access-Control-Allow-Headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+Allow: GET
+Vary: Origin
+Content-Length: 1063
+Content-Type: application/json; charset=UTF-8
+
+{"courses":[{"id":4,"title":"Cake Decorating Basics","instructorName":"Ada Okafor","priceMinor":3000,"currency":"NGN","enrolmentCount":9,"averageRating":0,"publishedAt":"2026-06-11T08:00:00+00:00","isPublished":true},{"id":3,"title":"Pastry Fundamentals","instructorName":"Ada Okafor","priceMinor":7500,"currency":"NGN","enrolmentCount":null,"averageRating":null,"publishedAt":"2026-05-20T08:00:00+00:00","isPublished":true},{"id":2,"title":"Sourdough Starters","instructorName":"Ada Okafor","priceMinor":6000,"currency":"NGN","enrolmentCount":64,"averageRating":4.2,"publishedAt":"2026-04-02T08:00:00+00:00","isPublished":true},{"id":1,"title":"Introduction to Bread Baking","instructorName":"Ada Okafor","priceMinor":4500,"currency":"NGN","enrolmentCount":128,"averageRating":4.6,"publishedAt":"2026-03-14T08:00:00+00:00","isPublished":true},{"id":5,"title":"Advanced Laminated Dough","instructorName":"Ada Okafor","priceMinor":9000,"currency":"NGN","enrolmentCount":0,"averageRating":null,"publishedAt":null,"isPublished":false}],"previewExpiresInSeconds":300}
+
+
+AFTER FIX:
+$ curl -i http://localhost:8080/wp-json/bemalearn/v1/courses
+
+HTTP/1.1 200 OK
+Date: Sat, 12 Sep 2026 07:58:28 GMT
+Server: Apache/2.4.67 (Debian)
+X-Powered-By: PHP/8.3.31
+X-Robots-Tag: noindex
+Link: <http://localhost:8080/wp-json/>; rel="https://api.w.org/"
+X-Content-Type-Options: nosniff
+Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages, Link
+Access-Control-Allow-Headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+Allow: GET
+Vary: Origin
+Content-Length: 875
+Content-Type: application/json; charset=UTF-8
+
+{"courses":[{"id":4,"title":"Cake Decorating Basics","instructorName":"Ada Okafor","priceMinor":3000,"currency":"NGN","enrolmentCount":9,"averageRating":0,"publishedAt":"2026-06-11T08:00:00+00:00","isPublished":true},{"id":3,"title":"Pastry Fundamentals","instructorName":"Ada Okafor","priceMinor":7500,"currency":"NGN","enrolmentCount":null,"averageRating":null,"publishedAt":"2026-05-20T08:00:00+00:00","isPublished":true},{"id":2,"title":"Sourdough Starters","instructorName":"Ada Okafor","priceMinor":6000,"currency":"NGN","enrolmentCount":64,"averageRating":4.2,"publishedAt":"2026-04-02T08:00:00+00:00","isPublished":true},{"id":1,"title":"Introduction to Bread Baking","instructorName":"Ada Okafor","priceMinor":4500,"currency":"NGN","enrolmentCount":128,"averageRating":4.6,"publishedAt":"2026-03-14T08:00:00+00:00","isPublished":true}],"previewExpiresInSeconds":300}
+
+
+--------------------------------------------------------------------------------
+DEFECT 4 (Validation): create_withdrawal failed to enforce MINIMUM_WITHDRAWAL_MINOR
+--------------------------------------------------------------------------------
+Description:
+In create_withdrawal(), only ($amount > $available) was checked.
+The code did not validate ($amount < self::MINIMUM_WITHDRAWAL_MINOR), allowing withdrawals below 50,000 minor units (500 NGN).
+Per API-CONTRACT.md, amounts below the minimum must be rejected with 422 Unprocessable Entity and code 'below_minimum'.
+
+BEFORE FIX:
+$ curl -i -X POST http://localhost:8080/wp-json/bemalearn/v1/me/withdrawals \
+  -H "Authorization: Bearer <redacted>" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: test_defect4_before" \
+  -d '{"amountMinor": 10000, "payoutReference": "test_defect4_before"}'
+
+HTTP/1.1 201 Created
+Date: Sat, 12 Sep 2026 07:56:11 GMT
+Server: Apache/2.4.67 (Debian)
+X-Powered-By: PHP/8.3.31
+X-Robots-Tag: noindex
+Link: <http://localhost:8080/wp-json/>; rel="https://api.w.org/"
+X-Content-Type-Options: nosniff
+Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages, Link
+Access-Control-Allow-Headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+Allow: POST
+Content-Length: 127
+Content-Type: application/json; charset=UTF-8
+
+{"id":1,"amountMinor":10000,"status":"pending","payoutReference":"test_defect4_before","createdAt":"2026-09-12T07:56:11+00:00"}
+
+
+AFTER FIX:
+$ curl -i -X POST http://localhost:8080/wp-json/bemalearn/v1/me/withdrawals \
+  -H "Authorization: Bearer <redacted>" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: test_below_min_after" \
+  -d '{"amountMinor": 10000, "payoutReference": "test_below_min_after"}'
+
+HTTP/1.1 422 Unprocessable Entity
+Date: Sat, 12 Sep 2026 07:58:38 GMT
+Server: Apache/2.4.67 (Debian)
+X-Powered-By: PHP/8.3.31
+X-Robots-Tag: noindex
+Link: <http://localhost:8080/wp-json/>; rel="https://api.w.org/"
+X-Content-Type-Options: nosniff
+Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages, Link
+Access-Control-Allow-Headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+Allow: POST
+Content-Length: 119
+Content-Type: application/json; charset=UTF-8
+
+{"code":"below_minimum","message":"The requested amount is below the minimum withdrawal amount.","data":{"status":422}}
