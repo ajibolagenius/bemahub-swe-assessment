@@ -1,0 +1,75 @@
+================================================================================
+TASK 5: DATABASE QUERIES TERMINAL OUTPUT
+================================================================================
+
+--- 5.1 INVESTIGATION (NULL VS 0) ---
+$ mysql -u bemalearn -passessment bemalearn -e "SELECT id, title, enrolment_count, (enrolment_count IS NULL) AS enrolment_is_null, average_rating, (average_rating IS NULL) AS rating_is_null FROM wp_bl_courses ORDER BY id;"
+
+id	title	enrolment_count	enrolment_is_null	average_rating	rating_is_null
+1	Introduction to Bread Baking	128	0	4.60	0
+2	Sourdough Starters	64	0	4.20	0
+3	Pastry Fundamentals	NULL	1	NULL	1
+4	Cake Decorating Basics	9	0	0.00	0
+5	Advanced Laminated Dough	0	0	NULL	1
+
+
+--- 5.2 CONSTRAINT PROOF (DUPLICATE INSERT BEFORE FIX) ---
+$ mysql -u bemalearn -passessment bemalearn -e "
+INSERT INTO wp_bl_withdrawals (instructor_id, amount_minor, status, payout_reference, cancelled_at)
+VALUES (2, 50000, 'pending', 'ref_duplicate_test', NULL);
+INSERT INTO wp_bl_withdrawals (instructor_id, amount_minor, status, payout_reference, cancelled_at)
+VALUES (2, 50000, 'pending', 'ref_duplicate_test', NULL);
+SELECT id, instructor_id, amount_minor, status, payout_reference, cancelled_at FROM wp_bl_withdrawals WHERE payout_reference = 'ref_duplicate_test';"
+
+id	instructor_id	amount_minor	status	payout_reference	cancelled_at
+1	2	50000	pending	ref_duplicate_test	NULL
+2	2	50000	pending	ref_duplicate_test	NULL
+
+
+--- 5.2 APPLYING MIGRATION 002 ---
+$ mysql -u bemalearn -passessment bemalearn < database/migrations/002_fix_withdrawal_reference.sql
+
+$ mysql -u bemalearn -passessment bemalearn -e "SHOW CREATE TABLE wp_bl_withdrawals\G"
+*************************** 1. row ***************************
+       Table: wp_bl_withdrawals
+Create Table: CREATE TABLE `wp_bl_withdrawals` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `instructor_id` bigint unsigned NOT NULL,
+  `amount_minor` int unsigned NOT NULL,
+  `status` varchar(32) COLLATE utf8mb4_unicode_520_ci NOT NULL DEFAULT 'pending',
+  `payout_reference` varchar(64) COLLATE utf8mb4_unicode_520_ci DEFAULT NULL,
+  `cancelled_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`instructor_id`,`payout_reference`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci
+
+
+--- 5.2 VERIFY DUPLICATE INSERT REJECTED AFTER FIX ---
+$ mysql -u bemalearn -passessment bemalearn -e "
+INSERT INTO wp_bl_withdrawals (instructor_id, amount_minor, status, payout_reference, cancelled_at)
+VALUES (2, 50000, 'pending', 'ref_duplicate_test', NULL);"
+
+ERROR 1062 (23000) at line 2: Duplicate entry '2-ref_duplicate_test' for key 'wp_bl_withdrawals.uq_reference'
+
+
+--- 5.3 JOIN QUERY (NON-REFUNDED REVENUE AND ENROLMENTS) ---
+$ mysql -u bemalearn -passessment bemalearn -e "
+SELECT 
+    c.title,
+    COUNT(e.id) AS non_refunded_enrolments,
+    COALESCE(SUM(e.amount_paid_minor), 0) AS total_revenue_minor
+FROM wp_bl_courses c
+LEFT JOIN wp_bl_enrolments e 
+    ON e.course_id = c.id 
+    AND e.refunded_at IS NULL
+GROUP BY c.id, c.title
+ORDER BY c.id;"
+
+title	non_refunded_enrolments	total_revenue_minor
+Introduction to Bread Baking	2	9000
+Sourdough Starters	0	0
+Pastry Fundamentals	0	0
+Cake Decorating Basics	0	0
+Advanced Laminated Dough	0	0
